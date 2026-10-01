@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar Cercano - Avionetas</title>
+<style>
+  body{font-family:system-ui;background:#0a0a0a;color:#fff;padding:16px}
+ .card{background:#1a1a1a;border-radius:16px;padding:16px;margin:12px 0}
+ .alert{background:#ff3b30;animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:0.7}}
+  button{padding:12px 18px;border-radius:12px;border:0;background:#fff;color:#000;font-weight:700}
+  small{color:#999}
+</style>
+</head>
+<body>
+<h2>🛩️ Radar - Tráfico cercano</h2>
+<p><small>Datos públicos de OpenSky Network. Solo muestra tráfico ADS-B colaborativo, no es 100% completo ni en tiempo real exacto.</small></p>
+<button id="start">Activar mi GPS y radar</button>
+<div id="pos" class="card">Posición: esperando permiso...</div>
+<div id="list"></div>
+
+<script>
+let myLat=null, myLon=null;
+const MAX_KM = 6;
+const MAX_ALT_M = 975; // 3200 ft
+
+function distKm(lat1,lon1,lat2,lon2){
+  const R=6371;
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+async function checkTraffic(){
+  if(myLat===null) return;
+  const delta = 0.06; // ~6km
+  const lamin = myLat-delta, lamax=myLat+delta, lomin=myLon-delta, lomax=myLon+delta;
+  try{
+    const url=`https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error("OpenSky limit");
+    const data = await r.json();
+    const out = document.getElementById("list");
+    out.innerHTML="";
+    let found=0;
+    (data.states||[]).forEach(s=>{
+      // s: [icao24, callsign, origin, time, lastContact, lon, lat, baroAlt, onGround, vel,...]
+      const lat=s[6], lon=s[5], alt=s[7];
+      if(lat==null || lon==null || alt==null) return;
+      if(s[8]) return; // en tierra
+      const d = distKm(myLat,myLon,lat,lon);
+      if(d <= MAX_KM && alt <= MAX_ALT_M){
+        found++;
+        const div=document.createElement("div");
+        div.className="card alert";
+        div.innerHTML=`<b>${(s[1]||'SIN CALLSIGN').trim()} - ${d.toFixed(2)} km</b><br>Alt: ${Math.round(alt*3.28084)} ft / ${Math.round(alt)} m<br>Pos: ${lat.toFixed(4)}, ${lon.toFixed(4)}<br><small>ICAO24: ${s[0]}</small>`;
+        out.appendChild(div);
+      }
+    });
+    if(found===0){
+      out.innerHTML=`<div class="card">Nada por debajo de ${MAX_ALT_M}m a menos de ${MAX_KM}km en este momento.</div>`;
+    } else {
+      if("vibrate" in navigator) navigator.vibrate(200);
+    }
+  }catch(e){
+    console.log(e);
+  }
+}
+
+document.getElementById("start").onclick=()=>{
+  navigator.geolocation.watchPosition(p=>{
+    myLat=p.coords.latitude;
+    myLon=p.coords.longitude;
+    document.getElementById("pos").innerHTML=`Tu posición: ${myLat.toFixed(5)}, ${myLon.toFixed(5)}<br><small>Precisión ±${Math.round(p.coords.accuracy)}m</small>`;
+  }, err=>alert("Activa el GPS: "+err.message), {enableHighAccuracy:true});
+
+  checkTraffic();
+  setInterval(checkTraffic, 10000); // cada 10s
+  document.getElementById("start").innerText="Radar activo (cada 10s)";
+};
+</script>
+</body>
+</html>
