@@ -3,88 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Radar Cercano V2</title>
+<title>Radar 10km</title>
 <style>
   body{font-family:system-ui;background:#0f0f0f;color:#fff;padding:16px;margin:0}
- .card{border-radius:16px;padding:14px;margin:10px 0;border:1px solid #222}
- .red{background:#2a1212;border-color:#ff3b30;color:#fff}
- .green{background:#112a14;border-color:#30d158;color:#d6ffd8}
- .pos{background:#1c1c1e}
+.card{border-radius:16px;padding:14px;margin:10px 0;border:1px solid #222}
+.red{background:#2a1212;border-color:#ff3b30}
+.green{background:#112a14;border-color:#30d158;color:#d6ffd8}
+.pos{background:#1c1c1e}
   button{padding:14px 20px;border-radius:12px;border:0;background:#fff;color:#000;font-weight:800;width:100%}
-  small{color:#999} b{font-size:16px}
+  small{color:#999}
 </style>
 </head>
 <body>
-<h2>🛩️ Radar V2 - Avionetas cercanas</h2>
+<h2>🛩️ Radar 10km</h2>
 <button id="start">Activar GPS y radar</button>
 <div id="pos" class="card pos">Esperando GPS...</div>
 <div id="list"></div>
-
 <script>
 let myLat=null, myLon=null, audioCtx=null;
 const MAX_KM = 10;
-const ALT_LIMIT_M = 975; // 3200 ft
-
-function distKm(lat1,lon1,lat2,lon2){
-  const R=6371; const dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-function beep(){
-  try{
-    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-    o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(audioCtx.destination);
-    g.gain.setValueAtTime(1,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.4);
-    o.start(); o.stop(audioCtx.currentTime+0.4);
-  }catch(e){}
-}
-
+const ALT_LIMIT_M = 975;
+function distKm(a,b,c,d){const R=6371;const dLat=(c-a)*Math.PI/180,dLon=(d-b)*Math.PI/180;const x=Math.sin(dLat/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+function beep(){try{if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=880;o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(1,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.4);o.start();o.stop(audioCtx.currentTime+0.4);}catch(e){}}
 async function check(){
   if(myLat===null) return;
-  const d=0.08;
-  const url=`https://opensky-network.org/api/states/all?lamin=${myLat-d}&lomin=${myLon-d}&lamax=${myLat+d}&lomax=${myLon+d}`;
+  const delta=0.12; // ~10km+ margen
+  const url=`https://opensky-network.org/api/states/all?lamin=${myLat-delta}&lomin=${myLon-delta}&lamax=${myLat+delta}&lomax=${myLon+delta}`;
   try{
-    const r=await fetch(url); const j=await r.json();
-    const list=document.getElementById("list"); list.innerHTML="";
-    let lowCount=0;
-    let items=(j.states||[]).map(s=>{
-      const lat=s[6], lon=s[5], alt=s[7], call=(s[1]||'N/A').trim(), icao=s[0], vel=s[9], hdg=s[10], vrate=s[11];
-      if(lat==null||lon==null) return null;
-      if(s[8]) return null; // en tierra
-      const km=distKm(myLat,myLon,lat,lon);
-      if(km>MAX_KM) return null;
-      return {lat,lon,alt:alt||0,call,icao,vel,hdg,vrate,km};
-    }).filter(Boolean).sort((a,b)=>a.km-b.km);
-
-    items.forEach(it=>{
-      const isLow = it.alt <= ALT_LIMIT_M && it.alt>0;
-      if(isLow) lowCount++;
-      const div=document.createElement("div");
-      div.className=`card ${isLow?'red':'green'}`;
-      div.innerHTML=`
-        <b>${isLow?'🔴 BAJO 3200ft':'🟢 ALTO'} - ${it.call}</b><br>
-        <b>Distancia: ${it.km.toFixed(2)} km</b><br>
-        Alt: ${it.alt?Math.round(it.alt*3.28084)+' ft / '+Math.round(it.alt)+' m':'Desconocida'}<br>
-        Vel: ${it.vel?Math.round(it.vel*1.94384)+' kt':''} | Rumbo: ${it.hdg?Math.round(it.hdg)+'°':''} | V/S: ${it.vrate?it.vrate+' m/s':''}<br>
-        <small>ICAO24: ${it.icao} | Pos: ${it.lat.toFixed(4)}, ${it.lon.toFixed(4)}</small>
-      `;
-      list.appendChild(div);
-    });
-    if(items.length===0) list.innerHTML=`<div class="card">Nada a menos de ${MAX_KM}km ahora mismo.</div>`;
-    if(lowCount>0) beep();
-  }catch(e){ console.log(e); }
+    const r=await fetch(url);const j=await r.json();const list=document.getElementById("list");list.innerHTML="";let low=0;
+    let items=(j.states||[]).map(s=>{const lat=s[6],lon=s[5],alt=s[7];if(lat==null||lon==null||s[8])return null;const km=distKm(myLat,myLon,lat,lon);if(km>MAX_KM)return null;return{lat,lon,alt:alt||0,call:(s[1]||'N/A').trim(),icao:s[0],vel:s[9],hdg:s[10],vrate:s[11],km};}).filter(Boolean).sort((a,b)=>a.km-b.km);
+    items.forEach(it=>{const isLow=it.alt<=ALT_LIMIT_M&&it.alt>0;if(isLow)low++;const d=document.createElement("div");d.className=`card ${isLow?'red':'green'}`;d.innerHTML=`<b>${isLow?'🔴 BAJO 3200ft':'🟢 ALTO'} - ${it.call}</b><br><b>${it.km.toFixed(2)} km de ti</b><br>Alt: ${it.alt?Math.round(it.alt*3.28084)+' ft / '+Math.round(it.alt)+' m':'N/D'} | Vel: ${it.vel?Math.round(it.vel*1.94384)+' kt':'N/D'}<br><small>ICAO: ${it.icao} | ${it.lat.toFixed(4)},${it.lon.toFixed(4)}</small>`;list.appendChild(d);});
+    if(items.length===0) list.innerHTML=`<div class="card">Nada a menos de ${MAX_KM}km ahora.</div>`;
+    if(low>0) beep();
+  }catch(e){}
 }
-
-document.getElementById("start").onclick=()=>{
-  navigator.geolocation.watchPosition(p=>{
-    myLat=p.coords.latitude; myLon=p.coords.longitude;
-    document.getElementById("pos").innerHTML=`Tú: ${myLat.toFixed(5)}, ${myLon.toFixed(5)} <br><small>±${Math.round(p.coords.accuracy)}m | Radio ${MAX_KM}km | Límite ${ALT_LIMIT_M}m (3200ft)</small>`;
-  },e=>alert(e.message),{enableHighAccuracy:true});
-  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  check(); setInterval(check,8000);
-  document.getElementById("start").innerText="Radar activo - actualizando cada 8s";
-};
+document.getElementById("start").onclick=()=>{navigator.geolocation.watchPosition(p=>{myLat=p.coords.latitude;myLon=p.coords.longitude;document.getElementById("pos").innerHTML=`Tú: ${myLat.toFixed(5)}, ${myLon.toFixed(5)}<br><small>Radio ${MAX_KM}km | Límite 3200ft</small>`;},{},{enableHighAccuracy:true});check();setInterval(check,8000);document.getElementById("start").innerText="Activo - 10km";};
 </script>
 </body>
 </html>
